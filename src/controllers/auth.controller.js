@@ -1,3 +1,4 @@
+import { upsertStreamUser } from "../lib/stream.js";
 import User from "../models/User.model.js";
 import jwt from "jsonwebtoken";
 
@@ -41,6 +42,17 @@ export const signup = async (req, res) => {
       profilepic: randomAvatar,
     });
 
+    try {
+      await upsertStreamUser({
+        id: newUser._id.toString(),
+        name: newUser.fullName,
+        image: newUser.profilepic || "",
+      });
+      console.log(`Stream user created for ${newUser.fullName}`);
+    } catch (error) {
+      console.log("Error creating Stream user:", error);
+    }
+
     const token = jwt.sign(
       { userId: newUser._id },
       process.env.JWT_SECRET_KEY,
@@ -63,12 +75,49 @@ export const signup = async (req, res) => {
   }
 };
 
-
 export const signin = async (req, res) => {
-  res.send("Signin Route");
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing Details",
+      });
+    }
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res
+        .status(401)
+        .json({ success: false, messsage: "Invalid Email or Password" });
+    }
+
+    const isPasswordCorrect = await user.matchPassword(password);
+    if (!isPasswordCorrect) {
+      return res
+        .status(401)
+        .json({ success: false, message: "Invalid Email or Password" });
+    }
+
+    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET_KEY, {
+      expiresIn: "7d",
+    });
+
+    res.cookie("jwt", token, {
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      httpOnly: true, //prevent xss attacks
+      sameSite: "strict", // prevent CSRF attacks
+      secure: process.env.NODE_ENV === "production",
+    });
+    res
+      .status(200)
+      .json({ success: true, message: "User Successfully Logged in", user });
+  } catch (error) {
+    console.log("Error in Login COntroller", error.message);
+    res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
 };
 
-
 export const logout = (req, res) => {
-  res.send("logout Route");
+  res.clearCookie("jwt");
+  res.status(200).json({ success: true, message: "Logout Successfully" });
 };
